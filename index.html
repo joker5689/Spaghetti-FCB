@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spaghettiavond FCB</title>
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    margin:4px;
+    background:#f5f5f5;
+    font-size:14px;
+}
+
+.container{
+    background:white;
+    padding:8px;
+    border-radius:8px;
+}
+
+h1{
+    text-align:center;
+    font-size:20px;
+    margin:5px 0 10px;
+}
+
+input{
+    width:100%;
+    padding:8px;
+    font-size:14px;
+    box-sizing:border-box;
+}
+
+.bestelling-info{
+    display:none;
+    margin:10px 0;
+    padding:10px;
+    background:#2e7d32;
+    color:white;
+    text-align:center;
+    font-size:18px;
+    font-weight:bold;
+    border-radius:6px;
+}
+
+.bestelling-info.zichtbaar{
+    display:block;
+}
+
+.drink{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    min-height:42px;
+    padding:8px 0;
+    border-bottom:1px solid #eee;
+}
+
+.drink-info{
+    display:flex;
+    justify-content:space-between;
+    width:65%;
+}
+
+.drink-name{
+    font-size:16px;
+    font-weight:600;
+}
+
+.price{
+    min-width:50px;
+    text-align:right;
+    font-weight:bold;
+}
+
+.controls{
+    display:flex;
+    align-items:center;
+    gap:4px;
+}
+
+.controls button{
+    width:34px;
+    height:34px;
+    border:none;
+    border-radius:6px;
+    background:#1976d2;
+    color:white;
+    font-size:18px;
+    touch-action:manipulation;
+}
+
+.controls button:disabled{
+    background:#9e9e9e;
+}
+
+.count{
+    min-width:18px;
+    text-align:center;
+    font-size:16px;
+    font-weight:bold;
+}
+
+.total{
+    position:sticky;
+    bottom:0;
+    background:white;
+    margin-top:10px;
+    padding:8px;
+    text-align:center;
+    font-size:22px;
+    font-weight:bold;
+    color:green;
+    border-top:2px solid #1976d2;
+}
+
+.lock-btn,
+.reset-btn{
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:6px;
+    font-size:16px;
+    font-weight:bold;
+    color:white;
+    touch-action:manipulation;
+}
+
+.lock-btn{
+    margin-top:10px;
+    background:#43a047;
+}
+
+.lock-btn.locked{
+    background:#f57c00;
+}
+
+/* Ver van de vergrendelknop, om per ongeluk tikken te vermijden */
+.reset-btn{
+    margin-top:40px;
+    margin-bottom:10px;
+    background:#e53935;
+}
+
+.besteld{
+    background:#e8f5e9;
+}
+
+.besteld .drink-name,
+.besteld .count{
+    color:#2e7d32;
+    font-weight:bold;
+}
+
+.verborgen{
+    display:none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🍝 Spaghettiavond FCB</h1>
+
+<input type="text"
+       id="tafelnummer"
+       placeholder="Tafelnummer/naam"
+       autocomplete="off">
+
+<div id="bestellingInfo" class="bestelling-info"></div>
+
+<div id="lijst"></div>
+
+<div class="total">
+    Totaal: € <span id="totaal">0.00</span>
+</div>
+
+<button type="button" id="lockBtn" class="lock-btn"></button>
+
+<button type="button" id="resetBtn" class="reset-btn">
+    🔄 Nieuwe tafel
+</button>
+
+</div>
+
+<script>
+"use strict";
+
+/* ---------- Gegevens ---------- */
+
+// Prijzen in CENTEN (geen rondingsfouten)
+const DRANKEN = [
+    ["Picon", 400],
+    ["Omer", 400],
+    ["St Bernardus abt12", 400],
+    ["Glas Witte wijn", 300],
+    ["Glas Rode wijn", 300],
+    ["Glas Rosé wijn", 300],
+    ["Fles Witte wijn", 1200],
+    ["Fles Rode wijn", 1200],
+    ["Fles Rosé wijn", 1200],
+    ["Virgin Mojito", 300],
+    ["Jupiler", 250],
+    ["Stella", 250],
+    ["Hoegaarden", 250],
+    ["Ypra 0.0%", 250],
+    ["Liefmans 0.0%", 250],
+    ["Plat water", 250],
+    ["Coca Cola", 250],
+    ["Coca Cola Zero", 250],
+    ["Fanta", 250],
+    ["Appelsap", 250],
+    ["Fruitsap", 250],
+    ["Koffie", 250]
+];
+
+const STORAGE_KEY = "spaghettiFCB";
+
+/* ---------- Toestand ---------- */
+
+// Aantallen per dranknaam: blijft kloppen als de lijst later verandert
+let aantallen = Object.fromEntries(DRANKEN.map(([naam]) => [naam, 0]));
+let vergrendeld = false;
+
+/* ---------- Elementen ---------- */
+
+const $ = id => document.getElementById(id);
+
+const lijstEl = $("lijst");
+const tafelEl = $("tafelnummer");
+const infoEl = $("bestellingInfo");
+const totaalEl = $("totaal");
+const lockBtn = $("lockBtn");
+const resetBtn = $("resetBtn");
+
+/* ---------- Hulpfuncties ---------- */
+
+const euro = cent => (cent / 100).toFixed(2);
+
+function totaalCent() {
+    return DRANKEN.reduce(
+        (som, [naam, prijs]) => som + aantallen[naam] * prijs, 0
+    );
+}
+
+function totaalAantal() {
+    return DRANKEN.reduce((som, [naam]) => som + aantallen[naam], 0);
+}
+
+function escapeHtml(tekst) {
+    return tekst.replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;",
+        '"': "&quot;", "'": "&#39;"
+    }[c]));
+}
+
+/* ---------- Opslag ---------- */
+
+function opslaan() {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            aantallen,
+            tafel: tafelEl.value,
+            vergrendeld
+        }));
+    } catch (e) { /* opslag niet beschikbaar: app werkt gewoon verder */ }
+}
+
+function laden() {
+    try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!data) return;
+
+        // Enkel bekende dranken en geldige aantallen overnemen
+        DRANKEN.forEach(([naam]) => {
+            const n = Number(data.aantallen && data.aantallen[naam]);
+            aantallen[naam] = Number.isInteger(n) && n > 0 ? n : 0;
+        });
+
+        tafelEl.value = typeof data.tafel === "string" ? data.tafel : "";
+        vergrendeld = data.vergrendeld === true;
+    } catch (e) { /* kapotte data negeren */ }
+}
+
+/* ---------- Weergave (één plek voor alle UI) ---------- */
+
+function bouwLijst() {
+    lijstEl.innerHTML = DRANKEN.map(([naam, prijs], i) => `
+        <div class="drink" id="drink${i}">
+            <div class="drink-info">
+                <span class="drink-name">${escapeHtml(naam)}</span>
+                <span class="price">€${euro(prijs)}</span>
+            </div>
+            <div class="controls">
+                <button type="button" data-i="${i}" data-delta="-1"
+                        aria-label="Eén ${escapeHtml(naam)} minder">−</button>
+                <span class="count" id="c${i}">0</span>
+                <button type="button" data-i="${i}" data-delta="1"
+                        aria-label="Eén ${escapeHtml(naam)} meer">+</button>
+            </div>
+        </div>`).join("");
+}
+
+function updateUI() {
+    // Rijen en aantallen
+    DRANKEN.forEach(([naam], i) => {
+        const aantal = aantallen[naam];
+        const rij = $("drink" + i);
+
+        $("c" + i).textContent = aantal;
+        rij.classList.toggle("besteld", vergrendeld && aantal > 0);
+        rij.classList.toggle("verborgen", vergrendeld && aantal === 0);
+    });
+
+    lijstEl.querySelectorAll(".controls button").forEach(btn => {
+        btn.disabled = vergrendeld;
+    });
+
+    // Totaal
+    const totaal = euro(totaalCent());
+    totaalEl.textContent = totaal;
+
+    // Vergrendelknop
+    lockBtn.textContent = vergrendeld
+        ? "🔓 Ontgrendelen"
+        : "🔒 Bestelling vastleggen";
+    lockBtn.classList.toggle("locked", vergrendeld);
+
+    // Tafelveld en infobalk
+    tafelEl.readOnly = vergrendeld;
+    infoEl.classList.toggle("zichtbaar", vergrendeld);
+    infoEl.textContent = vergrendeld
+        ? `TAFEL ${tafelEl.value.trim() || "?"} • € ${totaal} • ${totaalAantal()} consumpties`
+        : "";
+}
+
+/* ---------- Acties ---------- */
+
+function wijzig(index, delta) {
+    if (vergrendeld) return;
+
+    const naam = DRANKEN[index][0];
+    aantallen[naam] = Math.max(0, aantallen[naam] + delta);
+
+    updateUI();
+    opslaan();
+}
+
+function toggleLock() {
+    vergrendeld = !vergrendeld;
+    updateUI();
+    opslaan();
+}
+
+function resetBestelling() {
+    if (!confirm("Bestelling wissen en nieuwe tafel starten?")) return;
+
+    DRANKEN.forEach(([naam]) => { aantallen[naam] = 0; });
+    tafelEl.value = "";
+    vergrendeld = false;
+
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+
+    updateUI();
+}
+
+/* ---------- Start ---------- */
+
+bouwLijst();
+laden();
+updateUI();
+
+lijstEl.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-i]");
+    if (btn) wijzig(Number(btn.dataset.i), Number(btn.dataset.delta));
+});
+
+lockBtn.addEventListener("click", toggleLock);
+resetBtn.addEventListener("click", resetBestelling);
+tafelEl.addEventListener("input", opslaan);
+</script>
+
+</body>
+</html>
